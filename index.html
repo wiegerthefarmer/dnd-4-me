@@ -1,1 +1,200 @@
-<html>...
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>D&D 5e Character Creator & Tracker</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>D&D 5e Character Manager</h1>
+  <div class="top-bar">
+    <div class="char-switcher">
+      <label for="characterSelect" class="sr-only">Characters</label>
+      <select id="characterSelect" aria-label="Select Character"></select>
+      <button id="newCharacterBtn" title="Create New Character">+ New</button>
+      <button id="duplicateCharacterBtn" title="Duplicate Current Character">⧉ Duplicate</button>
+      <button id="deleteCharacterBtn" title="Delete Current Character">🗑 Delete</button>
+    </div>
+    <div class="io-buttons">
+      <button id="exportBtn">Export</button>
+      <label class="import-label">
+        Import
+        <input type="file" id="importFile" accept="application/json" hidden>
+      </label>
+      <button id="resetAllBtn" class="danger">Reset All</button>
+    </div>
+  </div>
+</header>
+
+<main id="app">
+  <section class="panel core">
+    <h2>Identity</h2>
+    <div class="grid two-col gap">
+      <label>Name
+        <input id="name" type="text" placeholder="Character Name">
+      </label>
+      <label>Player
+        <input id="playerName" type="text" placeholder="Your Name">
+      </label>
+      <label>Class
+        <input id="class" type="text" placeholder="Class (e.g. Fighter)">
+      </label>
+      <label>Subclass
+        <input id="subclass" type="text" placeholder="Subclass">
+      </label>
+      <label>Race
+        <input id="race" type="text" placeholder="Race">
+      </label>
+      <label>Background
+        <input id="background" type="text" placeholder="Background">
+      </label>
+      <label>Alignment
+        <input id="alignment" type="text" placeholder="Alignment">
+      </label>
+      <label>Experience (XP)
+        <input id="xp" type="number" min="0" step="1" placeholder="0">
+      </label>
+    </div>
+    <div class="level-proficiency">
+      <label>Level
+        <input id="level" type="number" min="1" max="20" value="1">
+      </label>
+      <div>
+        <span class="label">Proficiency Bonus:</span>
+        <span id="proficiencyBonus" class="value">+2</span>
+      </div>
+      <label>Inspiration
+        <input id="inspiration" type="checkbox">
+      </label>
+    </div>
+  </section>
+
+  <section class="panel abilities">
+    <h2>Abilities</h2>
+    <div class="abilities-grid">
+      <!-- Ability boxes injected -->
+    </div>
+  </section>
+
+  <section class="panel saves-and-skills">
+    <div class="subpanel">
+      <h2>Saving Throws</h2>
+      <div id="savingThrows" class="saving-throws"></div>
+    </div>
+    <div class="subpanel">
+      <h2>Skills</h2>
+      <div class="skills-legend">
+        <span>Proficient = ● | Expertise = ★</span>
+      </div>
+      <div id="skills" class="skills-list"></div>
+      <div class="passive-row">Passive Perception: <span id="passivePerception">10</span></div>
+    </div>
+  </section>
+
+  <section class="panel combat">
+    <h2>Combat Stats</h2>
+    <div class="grid three-col gap">
+      <label>Armor Class
+        <input id="ac" type="number" min="0" value="10">
+      </label>
+      <label>Initiative (auto from DEX mod; add misc)
+        <input id="initiativeMisc" type="number" value="0">
+      </label>
+      <div class="stat-display">
+        <span class="label">Initiative Total:</span>
+        <span id="initiativeTotal">+0</span>
+      </div>
+      <label>Speed (ft)
+        <input id="speed" type="number" min="0" value="30">
+      </label>
+      <label>Passive Stealth (opt)
+        <input id="passiveStealth" type="number" min="0" placeholder="—">
+      </label>
+      <label>Hit Dice (e.g. 1d10, 2d8)
+        <input id="hitDice" type="text" placeholder="1d8">
+      </label>
+      <label>Max HP
+        <input id="maxHp" type="number" min="1" value="10">
+      </label>
+      <label>Current HP
+        <input id="currentHp" type="number" min="0" value="10">
+      </label>
+      <label>Temporary HP
+        <input id="tempHp" type="number" min="0" value="0">
+      </label>
+    </div>
+    <fieldset class="death-saves">
+      <legend>Death Saves</legend>
+      <div>
+        Successes:
+        <label><input type="checkbox" class="death-save success"></label>
+        <label><input type="checkbox" class="death-save success"></label>
+        <label><input type="checkbox" class="death-save success"></label>
+      </div>
+      <div>
+        Failures:
+        <label><input type="checkbox" class="death-save failure"></label>
+        <label><input type="checkbox" class="death-save failure"></label>
+        <label><input type="checkbox" class="death-save failure"></label>
+      </div>
+      <button type="button" id="resetDeathSaves">Reset</button>
+    </fieldset>
+  </section>
+
+  <section class="panel equipment">
+    <h2>Equipment & Wealth</h2>
+    <div class="grid two-col gap">
+      <label>CP <input id="cp" type="number" min="0" value="0"></label>
+      <label>SP <input id="sp" type="number" min="0" value="0"></label>
+      <label>EP <input id="ep" type="number" min="0" value="0"></label>
+      <label>GP <input id="gp" type="number" min="0" value="0"></label>
+      <label>PP <input id="pp" type="number" min="0" value="0"></label>
+      <div>
+        <span class="label">Total Wealth (gp):</span>
+        <span id="wealthTotal">0</span>
+      </div>
+      <label>Carrying Capacity (auto STR*15)
+        <input id="carryingCapacity" type="number" readonly>
+      </label>
+      <label>Current Carried Weight (lb)
+        <input id="carriedWeight" type="number" min="0" value="0">
+      </label>
+    </div>
+    <label>Equipment List
+      <textarea id="equipment" rows="4" placeholder="- Longsword
+- Leather Armor
+- Explorer's Pack"></textarea>
+    </label>
+  </section>
+
+  <section class="panel attacks">
+    <h2>Attacks & Spellcasting</h2>
+    <div id="attacksList" class="attacks-list"></div>
+    <button id="addAttackBtn" type="button">+ Add Attack / Spell</button>
+  </section>
+
+  <section class="panel spells">
+    <h2>Spell Slots (Optional)</h2>
+    <div id="spellSlots" class="spell-slots"></div>
+  </section>
+
+  <section class="panel features">
+    <h2>Features / Traits</h2>
+    <textarea id="features" rows="6" placeholder="Class features, racial traits, feats, etc."></textarea>
+  </section>
+
+  <section class="panel notes">
+    <h2>Notes</h2>
+    <textarea id="notes" rows="6" placeholder="Campaign notes, quests, reminders..."></textarea>
+  </section>
+</main>
+
+<footer>
+  <small>D&D 5e Character Manager (Local Storage). No data leaves your browser.</small>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
