@@ -18,10 +18,17 @@
       <button id="deleteCharacterBtn" title="Delete Current Character">🗑 Delete</button>
     </div>
     <div class="io-buttons">
-      <button id="exportBtn">Export</button>
+  <button id="exportBtn">Export</button>
+  <button id="exportPngBtn" title="Export sheet as PNG">Export PNG</button>
+  <button id="exportPdfBtn" title="Export sheet as PDF">Export PDF</button>
+  <button id="printBtn" title="Print character sheet">Print</button>
+  <button id="tutorialBtn" title="Open character creation tutorial">Tutorial</button>
       <label class="import-label">
         Import
         <input type="file" id="importFile" accept="application/json" hidden>
+      </label>
+      <label class="import-label" title="Allow unchecking class-granted saves (advanced/homebrew)">
+        <input id="allowClassOverride" type="checkbox"> Allow class overrides
       </label>
       <button id="resetAllBtn" class="danger">Reset All</button>
     </div>
@@ -88,13 +95,17 @@
 
   <section class="panel saves-and-skills">
     <div class="subpanel">
-      <h2>Saving Throws</h2>
+      <h2>Saving Throws <span id="savingThrowsBadge" class="badge" title="Class-granted saving throws (locked)">Class saves: —</span></h2>
       <div id="savingThrows" class="saving-throws"></div>
     </div>
     <div class="subpanel">
       <h2>Skills</h2>
       <div class="skills-legend">
         <span>Proficient = ● | Expertise = ★</span>
+        <div class="skill-badges">
+          <span id="classSkillBadge" class="badge" title="Class skill picks remaining">Class picks: —</span>
+          <span id="expertiseBadge" class="badge" title="Expertise slots available from class & level">Expertise: —</span>
+        </div>
       </div>
       <div id="skills" class="skills-list"></div>
       <div class="passive-row">Passive Perception: <span id="passivePerception">10</span></div>
@@ -203,6 +214,23 @@
   <small>D&D 5e Character Manager (Local Storage). No data leaves your browser.</small>
 </footer>
 
-<script src="script.js"></script>
+<!-- Tutorial Modal -->
+<div id="tutorialModal" class="modal" aria-hidden="true">
+  <div class="modal-content">
+    <h3>Character Creation Tutorial</h3>
+    <div id="tutorialStepContent"></div>
+    <div class="modal-controls">
+      <button id="tutorialPrev">◀ Prev</button>
+      <button id="tutorialNext">Next ▶</button>
+      <button id="tutorialClose">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- html2canvas and jsPDF for PNG/PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="data-uris.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>

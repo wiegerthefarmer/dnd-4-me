@@ -3,6 +3,7 @@
  */
 
 const STORAGE_KEY = 'dnd5eCharacters_v1';
+const SETTINGS_KEY = 'dnd5eSettings_v1';
 
 // Static data
 const ABILITIES = [
@@ -70,9 +71,100 @@ const ALIGNMENTS = [
   'Lawful Evil','Neutral Evil','Chaotic Evil'
 ];
 
+// Limits and class skill counts (core PHB defaults). These do NOT include background or racial proficiencies.
+const SKILL_LIMITS = {
+  Barbarian: 2,
+  Bard: 3,
+  Cleric: 2,
+  Druid: 2,
+  Fighter: 2,
+  Monk: 2,
+  Paladin: 2,
+  Ranger: 3,
+  Rogue: 4,
+  Sorcerer: 2,
+  Warlock: 2,
+  Wizard: 2
+};
+
+const MAX_SAVING_THROWS = 2; // most classes give 2 saving throw proficiencies
+
+// PHB-accurate mappings (core 12 classes)
+const CLASS_SAVING_THROWS = {
+  Barbarian: ['str','con'],
+  Bard: ['dex','cha'],
+  Cleric: ['wis','cha'],
+  Druid: ['int','wis'],
+  Fighter: ['str','con'],
+  Monk: ['str','dex'],
+  Paladin: ['wis','cha'],
+  Ranger: ['str','dex'],
+  Rogue: ['dex','int'],
+  Sorcerer: ['con','cha'],
+  Warlock: ['wis','cha'],
+  Wizard: ['int','wis']
+};
+
+// PHB-accurate class skill choices (skill keys must match the SKILLS[] keys above)
+const CLASS_SKILL_CHOICES = {
+  Barbarian: ['animalHandling','athletics','intimidation','nature','perception','survival'],
+  Bard: SKILLS.map(s => s.key), // choose any three
+  Cleric: ['history','insight','medicine','persuasion','religion'],
+  Druid: ['arcana','animalHandling','insight','medicine','nature','perception','religion','survival'],
+  Fighter: ['acrobatics','animalHandling','athletics','history','insight','intimidation','perception','survival'],
+  Monk: ['acrobatics','athletics','history','insight','religion','stealth'],
+  Paladin: ['athletics','insight','intimidation','medicine','persuasion','religion'],
+  Ranger: ['animalHandling','athletics','insight','investigation','nature','perception','stealth','survival'],
+  Rogue: ['acrobatics','athletics','deception','insight','intimidation','investigation','perception','performance','persuasion','sleightOfHand','stealth'],
+  Sorcerer: ['arcana','deception','insight','intimidation','persuasion','religion'],
+  Warlock: ['arcana','deception','history','intimidation','investigation','nature','religion'],
+  Wizard: ['arcana','history','insight','investigation','medicine','religion']
+};
+
+// Expertise slots by class and level (PHB base rules). Returns total allowed expertise choices.
+function expertiseSlotsForChar(char) {
+  const cls = char.class || '';
+  const lvl = parseInt(char.level,10) || 1;
+  let slots = 0;
+  if (cls === 'Rogue') {
+    if (lvl >= 1) slots += 2;
+    if (lvl >= 6) slots += 2; // total 4 at 6th
+  }
+  if (cls === 'Bard') {
+    if (lvl >= 3) slots += 2;
+    if (lvl >= 10) slots += 2; // total 4 at 10th
+  }
+  // Other classes / subclasses may grant expertise (e.g., Lore college, some Roguish archetypes);
+  // those are out of scope for core PHB base class entries here.
+  return slots;
+}
+
+// Apply class defaults to a character (auto-check class saving throws). This mutates the char object.
+function applyClassDefaults(char) {
+  if (!char) return;
+  const cls = char.class || '';
+  const classSaves = CLASS_SAVING_THROWS[cls] || [];
+  // Ensure class saving throws are set to true
+  Object.keys(char.savingThrows).forEach(k => {
+    if (classSaves.includes(k)) char.savingThrows[k] = true;
+  });
+  // Note: we intentionally do not clear other saving throw proficiencies because
+  // background or user choices might add them; UI will still enforce the max allowed.
+}
+
 // State
 let characters = loadCharacters();
 let currentId = characters.length ? characters[0].id : createNewCharacter().id;
+let settings = loadSettings();
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return { allowClassOverride: false };
+    return JSON.parse(raw);
+  } catch (e) { return { allowClassOverride:false }; }
+}
+function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
 
 // Utility Functions
 function uuid() {
@@ -235,6 +327,15 @@ function populateSelectOptions() {
     updateSubclassOptions(cls);
     const inputEvent = new Event('input', { bubbles: true });
     classEl.dispatchEvent(inputEvent);
+    // Re-populate fields to enforce new class limits and apply class defaults
+    setTimeout(() => {
+      const char = getCurrentChar();
+      if (char) {
+        applyClassDefaults(char);
+        saveCharacters();
+        populateFields();
+      }
+    }, 0);
   });
 
   // Dispatch an input event when subclass/race/alignment change so generic binding saves values
@@ -274,6 +375,144 @@ function buildSavingThrowsUI() {
     `;
     container.appendChild(row);
   });
+}
+
+function enforceSavingThrowLimits(char) {
+  // Lock class-granted saving throws and disable selecting more than allowed class picks.
+  const cls = (char && char.class) || '';
+  const classSaves = CLASS_SAVING_THROWS[cls] || [];
+  const checks = Array.from(document.querySelectorAll('[data-bind^="savingThrows."]'));
+
+  // Count current checked (including class-granted ones)
+  const checked = checks.filter(c => c.checked).length;
+
+  checks.forEach(c => {
+    const path = c.getAttribute('data-bind');
+    const key = path.split('.').pop();
+    const row = c.closest('.save-row');
+    // Clean up any existing lock node
+    const existingLock = row && row.querySelector('.save-lock');
+    if (existingLock) existingLock.remove();
+
+    // If this save is a class-granted save
+    if (classSaves.includes(key)) {
+      c.checked = true;
+      // If user allows override, do not disable; otherwise lock it
+      if (settings.allowClassOverride) {
+        c.disabled = false;
+      } else {
+        c.disabled = true;
+        // show small lock indicator
+        if (row) {
+          const lock = document.createElement('span');
+          lock.className = 'save-lock';
+          lock.title = 'Class-granted save (locked)';
+          lock.textContent = '🔒';
+          row.appendChild(lock);
+        }
+      }
+      return;
+    }
+    // Otherwise, disable if not checked and we've reached the max allowed (treat class saves as part of the count)
+    if (!c.checked && checked >= MAX_SAVING_THROWS) c.disabled = true;
+    else c.disabled = false;
+  });
+
+  // Update badge showing class-granted saves
+  try {
+    const badge = document.getElementById('savingThrowsBadge');
+    if (badge) {
+      const cls = char.class || '';
+      const classSaves = CLASS_SAVING_THROWS[cls] || [];
+      if (classSaves.length) {
+        badge.textContent = `Class saves: ${classSaves.map(s=>s.toUpperCase()).join(', ')}`;
+        badge.title = `These saving throws are granted by your class and are locked.`;
+      } else {
+        badge.textContent = 'Class saves: —';
+        badge.title = 'No class-granted saving throws detected.';
+      }
+    }
+  } catch (e) { /* noop */ }
+}
+
+function enforceSkillLimits(char) {
+  const cls = char.class || '';
+  const allowed = SKILL_LIMITS[cls] || 0;
+  const allowedSkills = CLASS_SKILL_CHOICES[cls] || SKILLS.map(s => s.key);
+
+  // Count proficiencies that are within the class-allowed choices (class picks)
+  const profChecks = Array.from(document.querySelectorAll('[data-skill-prof]'));
+  const profCountAllowed = profChecks.filter(cb => {
+    const key = cb.getAttribute('data-skill-prof');
+    return cb.checked && allowedSkills.includes(key);
+  }).length;
+
+  profChecks.forEach(cb => {
+    const key = cb.getAttribute('data-skill-prof');
+    // If the skill is not in the class choices:
+    if (!allowedSkills.includes(key)) {
+      // If the character already has it (background/racial), keep it checked but disable changes
+      if (char.skills[key] && char.skills[key].prof) {
+        cb.checked = true;
+        cb.disabled = true;
+      } else {
+        // Not allowed to pick as a class skill
+        cb.checked = !!char.skills[key].prof;
+        cb.disabled = true;
+      }
+      return;
+    }
+
+    // Skill is allowed by class. If count reached, disable unchecked ones.
+    if (!cb.checked && allowed > 0 && profCountAllowed >= allowed) cb.disabled = true;
+    else cb.disabled = false;
+  });
+
+  // Expertise handling: only enable expertise boxes if the class grants expertise slots and the character has proficiency
+  const expSlots = expertiseSlotsForChar(char);
+  const expChecks = Array.from(document.querySelectorAll('[data-skill-exp]'));
+  const currentExpCount = expChecks.filter(cb => cb.checked).length;
+
+  expChecks.forEach(expCb => {
+    const key = expCb.getAttribute('data-skill-exp');
+    const profCb = document.querySelector(`[data-skill-prof="${key}"]`);
+    // Require proficiency first
+    if (!profCb || !profCb.checked) {
+      expCb.checked = false;
+      expCb.disabled = true;
+      return;
+    }
+    // If class grants expertise slots, allow up to that many; otherwise disable
+    if (expSlots <= 0) {
+      expCb.disabled = true;
+      // keep existing expertise false
+      if (expCb.checked) {
+        expCb.checked = false;
+        if (char.skills[key]) char.skills[key].exp = false;
+      }
+      return;
+    }
+    // If we've used up expertise slots and this box isn't already checked, disable it
+    if (!expCb.checked && currentExpCount >= expSlots) expCb.disabled = true;
+    else expCb.disabled = false;
+  });
+
+  // Refresh badges
+  try {
+    const classBadge = document.getElementById('classSkillBadge');
+    const expBadge = document.getElementById('expertiseBadge');
+    if (classBadge) {
+      const profCountAllowedNow = Array.from(document.querySelectorAll('[data-skill-prof]')).filter(cb => {
+        const k = cb.getAttribute('data-skill-prof');
+        return cb.checked && (CLASS_SKILL_CHOICES[char.class] || SKILLS.map(s=>s.key)).includes(k);
+      }).length;
+      const allowedNow = SKILL_LIMITS[char.class] || 0;
+      classBadge.textContent = `Class picks: ${Math.max(allowedNow - profCountAllowedNow,0)}`;
+    }
+    if (expBadge) expBadge.textContent = `Expertise: ${expertiseSlotsForChar(char)}`;
+  } catch (e) {
+    // noop
+  }
 }
 
 function buildSkillsUI() {
@@ -347,6 +586,9 @@ function populateFields() {
   const char = getCurrentChar();
   if (!char) return;
 
+  // Ensure class defaults (class-granted saves) are applied before rendering
+  applyClassDefaults(char);
+
   // Simple fields
   const mapping = {
     name: 'name',
@@ -415,6 +657,16 @@ function populateFields() {
     if (exp) exp.checked = !!char.skills[sk.key].exp;
   });
 
+  // Update badges for class skill picks and expertise slots
+  const cls = char.class || '';
+  const allowed = SKILL_LIMITS[cls] || 0;
+  const allowedSkills = CLASS_SKILL_CHOICES[cls] || SKILLS.map(s => s.key);
+  const profCountAllowed = Object.entries(char.skills).filter(([k,v]) => v.prof && allowedSkills.includes(k)).length;
+  const classBadge = document.getElementById('classSkillBadge');
+  if (classBadge) classBadge.textContent = `Class picks: ${allowed - profCountAllowed}`;
+  const expBadge = document.getElementById('expertiseBadge');
+  if (expBadge) expBadge.textContent = `Expertise: ${expertiseSlotsForChar(char)}`;
+
   // Death saves
   document.querySelectorAll('.death-save.success').forEach((cb, i) => {
     cb.checked = char.deathSaves.success[i];
@@ -441,6 +693,10 @@ function populateFields() {
 
   // Derived
   updateDerivedFields();
+
+  // Enforce UI limits (saving throws / skills)
+  enforceSavingThrowLimits(char);
+  enforceSkillLimits(char);
 }
 
 function updateDerivedFields() {
@@ -576,6 +832,24 @@ function attachListeners() {
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   });
 
+  // Export sheet as PNG / PDF (uses html2canvas + jsPDF)
+  const exportPngBtn = document.getElementById('exportPngBtn');
+  const exportPdfBtn = document.getElementById('exportPdfBtn');
+  if (exportPngBtn) exportPngBtn.addEventListener('click', async () => {
+    const char = getCurrentChar();
+    exportPngBtn.disabled = true; const prev = exportPngBtn.textContent; exportPngBtn.textContent = 'Preparing...';
+    try { await exportSheetAsImage(char); }
+    catch (err) { console.error('Export PNG failed', err); alert('Export PNG failed: ' + (err && err.message)); }
+    finally { exportPngBtn.disabled = false; exportPngBtn.textContent = prev; }
+  });
+  if (exportPdfBtn) exportPdfBtn.addEventListener('click', async () => {
+    const char = getCurrentChar();
+    exportPdfBtn.disabled = true; const prev = exportPdfBtn.textContent; exportPdfBtn.textContent = 'Preparing...';
+    try { await exportSheetAsPDF(char); }
+    catch (err) { console.error('Export PDF failed', err); alert('Export PDF failed: ' + (err && err.message)); }
+    finally { exportPdfBtn.disabled = false; exportPdfBtn.textContent = prev; }
+  });
+
   // Import
   document.getElementById('importFile').addEventListener('change', e => {
     const file = e.target.files[0];
@@ -610,7 +884,11 @@ function attachListeners() {
     // Ability binding
     if (target.matches('[data-bind^="abilities."]')) {
       const path = target.getAttribute('data-bind');
-      const val = parseInt(target.value,10) || 0;
+  let val = parseInt(target.value,10) || 0;
+  // Enforce ability bounds (3..30). 30 covers magical increases; adapt if needed.
+  if (val < 3) val = 3;
+  if (val > 30) val = 30;
+  target.value = val;
       deepSet(char, path, val);
       saveCharacters();
       updateDerivedFields();
@@ -620,15 +898,39 @@ function attachListeners() {
     // Saving throw prof
     if (target.matches('[data-bind^="savingThrows."]')) {
       const path = target.getAttribute('data-bind');
+      // Enforce max saving throw proficiencies (most classes get 2)
+      const abilityKey = path.split('.').pop();
+      if (target.checked) {
+        const currentCount = Object.values(char.savingThrows).filter(Boolean).length;
+        if (currentCount >= MAX_SAVING_THROWS) {
+          // revert and inform user
+          target.checked = false;
+          alert(`You can only have ${MAX_SAVING_THROWS} saving throw proficiencies (class dependent).`);
+          return;
+        }
+      }
       deepSet(char, path, target.checked);
       saveCharacters();
       updateDerivedFields();
+      // Update UI enabling/disabling
+      enforceSavingThrowLimits(char);
       return;
     }
 
     // Skill prof / exp
     if (target.matches('[data-skill-prof]')) {
       const key = target.getAttribute('data-skill-prof');
+      // Enforce class skill limit
+      const cls = char.class || '';
+      const allowed = SKILL_LIMITS[cls] || 0;
+      if (target.checked) {
+        const profCount = Object.values(char.skills).filter(s => s.prof).length;
+        if (allowed > 0 && profCount >= allowed) {
+          target.checked = false;
+          alert(`As a ${cls || 'character'}, you may only choose ${allowed} skill proficiencies from your class (background/racial proficiencies not counted here).`);
+          return;
+        }
+      }
       char.skills[key].prof = target.checked;
       if (!target.checked) char.skills[key].exp = false;
       saveCharacters();
@@ -637,11 +939,17 @@ function attachListeners() {
     }
     if (target.matches('[data-skill-exp]')) {
       const key = target.getAttribute('data-skill-exp');
+      // Expertise can only be applied to a skill the character is proficient in
       if (target.checked && !char.skills[key].prof) {
-        // Auto set proficiency if expertise toggled
-        char.skills[key].prof = true;
-        const profEl = document.querySelector(`[data-skill-prof="${key}"]`);
-        if (profEl) profEl.checked = true;
+        alert('Expertise requires proficiency first. Please check proficiency before setting expertise.');
+        target.checked = false;
+        return;
+      }
+      // For simplicity, allow expertise only for classes that grant it (Rogue, Bard)
+      const cls = char.class || '';
+      const allowsExpertise = ['Rogue','Bard'].includes(cls);
+      if (target.checked && !allowsExpertise) {
+        alert(`${cls || 'This class'} does not grant expertise by default. Expertise will be stored but may be outside standard class rules.`);
       }
       char.skills[key].exp = target.checked;
       saveCharacters();
@@ -730,6 +1038,11 @@ function attachListeners() {
   document.body.addEventListener('click', e => {
     const target = e.target;
 
+    if (target.matches('#printBtn')) {
+      openPrintView();
+      return;
+    }
+
     if (target.matches('#addAttackBtn')) {
       const char = getCurrentChar();
       char.attacks.push({
@@ -775,6 +1088,267 @@ function attachListeners() {
   });
 }
 
+// Wire settings UI
+function wireSettingsUI() {
+  const cb = document.getElementById('allowClassOverride');
+  if (!cb) return;
+  cb.checked = !!settings.allowClassOverride;
+  cb.addEventListener('change', e => {
+    settings.allowClassOverride = !!e.target.checked;
+    saveSettings();
+    // Re-apply enforcement so UI updates
+    const char = getCurrentChar();
+    if (char) enforceSavingThrowLimits(char);
+  });
+}
+
+// Tutorial modal logic
+const TUTORIAL_STEPS = [
+  { title: 'Welcome', body: 'This short tutorial will walk you through creating a character: identity, abilities, class & race, skills, and equipment.' },
+  { title: 'Name & Identity', body: 'Give your character a Name and Player name. Select a Class and Race from the dropdowns. You can pick a Subclass after choosing the class.', selector: '#class' },
+  { title: 'Level & Proficiency', body: 'Set Level to determine your proficiency bonus. The Proficiency Bonus updates automatically.', selector: '#level' },
+  { title: 'Abilities', body: 'Set your six ability scores (STR, DEX, CON, INT, WIS, CHA). Modifiers are shown next to each score and update automatically.', selector: '.abilities-grid' },
+  { title: 'Saving Throws', body: 'Class-granted saving throw proficiencies are auto-checked and locked by default. Use the "Allow class overrides" setting to unlock them for homebrew.', selector: '#savingThrows' },
+  { title: 'Skills & Expertise', body: 'Choose your class skill proficiencies (badge shows remaining picks). Expertise (double proficiency) is available for classes like Rogue and Bard at appropriate levels.', selector: '#skills' },
+  { title: 'Combat & HP', body: 'Set Armor Class (AC), Hit Dice, Max HP and Current HP. Initiative is computed from DEX + misc.', selector: '.combat' },
+  { title: 'Attacks & Spells', body: 'Add attacks or spell entries in the Attacks panel. Spell slots can be tracked in the Spell Slots panel.', selector: '#attacksList' },
+  { title: 'Equipment & Wealth', body: 'Track currency and equipment in the Equipment panel. Carrying capacity is calculated from STR.', selector: '.equipment' },
+  { title: 'Save & Export', body: 'Your characters are saved to localStorage. Use Export/Import to move characters between devices.', selector: '.io-buttons' }
+];
+
+let tutorialIndex = 0;
+function openTutorial(idx=0) {
+  tutorialIndex = idx || 0;
+  const modal = document.getElementById('tutorialModal');
+  if (!modal) return;
+  modal.setAttribute('aria-hidden','false');
+  renderTutorialStep();
+}
+function closeTutorial() {
+  const modal = document.getElementById('tutorialModal');
+  if (!modal) return;
+  modal.setAttribute('aria-hidden','true');
+  // remove any lingering highlight
+  if (window.__tutorialLastHighlighted) {
+    window.__tutorialLastHighlighted.classList.remove('tutorial-highlight');
+    window.__tutorialLastHighlighted = null;
+  }
+}
+function renderTutorialStep() {
+  const content = document.getElementById('tutorialStepContent');
+  if (!content) return;
+  const step = TUTORIAL_STEPS[tutorialIndex];
+  content.innerHTML = `<h4>${step.title}</h4><p>${step.body}</p><p><em>Step ${tutorialIndex+1} of ${TUTORIAL_STEPS.length}</em></p>`;
+  document.getElementById('tutorialPrev').disabled = tutorialIndex === 0;
+  document.getElementById('tutorialNext').textContent = tutorialIndex === TUTORIAL_STEPS.length-1 ? 'Finish' : 'Next ▶';
+
+  // remove previous highlight
+  if (window.__tutorialLastHighlighted) {
+    window.__tutorialLastHighlighted.classList.remove('tutorial-highlight');
+    window.__tutorialLastHighlighted = null;
+  }
+
+  // If the step references a selector, scroll it into view and highlight briefly
+  if (step.selector) {
+    const el = document.querySelector(step.selector);
+    if (el) {
+      // scroll the target into view (center)
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) { el.scrollIntoView(); }
+      // add highlight class
+      el.classList.add('tutorial-highlight');
+      window.__tutorialLastHighlighted = el;
+      // focus first focusable element inside
+      const focusable = el.querySelector('input,select,button,textarea');
+      if (focusable) focusable.focus({ preventScroll: true });
+    }
+  }
+}
+
+function wireTutorialUI() {
+  const openBtn = document.getElementById('tutorialBtn');
+  if (openBtn) openBtn.addEventListener('click', () => openTutorial(0));
+  const prev = document.getElementById('tutorialPrev');
+  const next = document.getElementById('tutorialNext');
+  const close = document.getElementById('tutorialClose');
+  if (prev) prev.addEventListener('click', () => { tutorialIndex = Math.max(0, tutorialIndex-1); renderTutorialStep(); });
+  if (next) next.addEventListener('click', () => { if (tutorialIndex < TUTORIAL_STEPS.length-1) tutorialIndex++; else closeTutorial(); renderTutorialStep(); });
+  if (close) close.addEventListener('click', closeTutorial);
+  // Keep tutorial non-blocking; avoid closing on outside click so users can interact with the page while following the tutorial
+}
+
+// Printable character sheet generator
+function generatePrintableSheet(char) {
+  if (!char) return '';
+  const prof = proficiencyBonus(char.level);
+
+  // Helper to render ability boxes inline
+  const abilitiesHtml = ABILITIES.map(a => {
+    const score = char.abilities[a.key] || 0;
+    const mod = abilityMod(score);
+    return `<div class="ability-box"><div class="ability-name">${a.name}</div><div class="ability-score">${score}</div><div class="ability-mod">${formatMod(mod)}</div></div>`;
+  }).join('');
+
+  // Build small helpers for skills and attacks
+  const skillsRows = SKILLS.map(s => {
+    const dat = char.skills[s.key] || { prof:false, exp:false };
+    const mark = dat.exp ? '★' : (dat.prof ? '●' : '');
+    const total = abilityMod(char.abilities[s.ability]) + (dat.exp ? prof*2 : (dat.prof ? prof : 0));
+    return { key: s.key, label: s.label, mark, total };
+  });
+
+  const attacksHtml = (char.attacks || []).map(atk => `<div class="ps-attack">${atk.name || ''} ${atk.attackBonus ? ('+'+atk.attackBonus) : ''} ${atk.damage ? ('— '+atk.damage) : ''}</div>`).join('');
+
+  // We'll use the uploaded official sheet PNGs as page backgrounds and absolutely position overlays using percentages.
+  const sheet = `
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>${char.name} — Character Sheet</title>
+    <style>
+      html,body{margin:0;padding:0;font-family:Arial,Helvetica,sans-serif}
+      .pages{width:100%;display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px}
+      .page{width:820px;height:1122px;position:relative;background-size:cover;background-repeat:no-repeat;background-position:center;border:1px solid #ccc}
+      /* overlay common styles */
+      .overlay{position:absolute;color:#111}
+      .name{left:8%;top:6%;font-size:22px;font-weight:700}
+      .meta-line{left:8%;top:10%;font-size:12px}
+      .level-box{right:8%;top:6%;position:absolute;text-align:right}
+
+      /* Abilities box positions (left column) */
+      .abilities{left:6%;top:18%;width:20%;}
+      .ability-box{display:flex;justify-content:space-between;padding:4px 6px;background:transparent}
+
+      /* Skills area (center column) */
+      .skills{left:30%;top:18%;width:38%;}
+      .ps-skill{display:flex;justify-content:space-between;padding:3px 6px}
+
+      /* Attacks area (center lower) */
+      .attacks{left:30%;top:62%;width:38%;}
+
+      /* Right column stats */
+      .stats{right:6%;top:18%;width:18%;text-align:left}
+
+      /* Page 2 specifics (equipment, features, notes) */
+      .page2 .big-block{left:6%;top:12%;width:88%;}
+      .page2 .equipment{left:6%;top:20%;width:88%;height:300px}
+
+      /* Page 3 could hold additional tables — keep generic */
+      .page3 .big-block{left:6%;top:10%;width:88%;}
+
+      /* small typographic tuning */
+      .label{font-size:11px;color:#222}
+    </style>
+  </head>
+  <body>
+    <div class="pages">
+      <!-- Page 1: main sheet -->
+  <div class="page page1" style="background-image:url('${DATA_URI_PAGE_1}')">
+        <div class="overlay name" style="position:absolute">${char.name || ''}</div>
+        <div class="overlay meta-line" style="position:absolute">${char.race || ''} • ${char.class || ''} ${char.subclass ? '('+char.subclass+')' : ''}</div>
+        <div class="overlay level-box" style="position:absolute">Level ${char.level} &nbsp; PB ${formatMod(prof)}</div>
+
+        <div class="overlay abilities" style="position:absolute">
+          ${ABILITIES.map(a=>`<div class="ability-box"><div class="ability-name">${a.name}</div><div class="ability-score">${char.abilities[a.key]||0}</div><div class="ability-mod">${formatMod(abilityMod(char.abilities[a.key]))}</div></div>`).join('')}
+        </div>
+
+        <div class="overlay skills" style="position:absolute">
+          ${skillsRows.map(s => `<div class="ps-skill"><div class="label">${s.mark} ${s.label}</div><div class="label">${formatMod(s.total)}</div></div>`).join('')}
+        </div>
+
+        <div class="overlay attacks" style="position:absolute">
+          ${attacksHtml}
+        </div>
+
+        <div class="overlay stats" style="position:absolute">
+          <div class="label">AC: ${char.ac || ''}</div>
+          <div class="label">HP: ${char.currentHp || ''} / ${char.maxHp || ''}</div>
+          <div class="label">Hit Dice: ${char.hitDice || ''}</div>
+        </div>
+      </div>
+
+      <!-- Page 2: equipment / features -->
+  <div class="page page2" style="background-image:url('${DATA_URI_PAGE_2}')">
+        <div class="overlay big-block equipment" style="position:absolute">
+          <pre style="white-space:pre-wrap;font-family:inherit">${char.equipment || ''}</pre>
+        </div>
+      </div>
+
+      <!-- Page 3: notes / additional -->
+  <div class="page page3" style="background-image:url('${DATA_URI_PAGE_3}')">
+        <div class="overlay big-block" style="position:absolute">
+          <pre style="white-space:pre-wrap;font-family:inherit">${char.notes || ''}</pre>
+        </div>
+      </div>
+    </div>
+  </body>
+  </html>`;
+  return sheet;
+}
+
+function openPrintView() {
+  const char = getCurrentChar();
+  if (!char) { alert('No character selected'); return; }
+  const html = generatePrintableSheet(char);
+  const w = window.open('', '_blank', 'noopener');
+  if (!w) { alert('Popup blocked. Please allow popups for this site to print.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  // wait a moment for render and then print
+  setTimeout(() => { w.print(); }, 250);
+}
+
+// Export helpers using html2canvas and jsPDF
+async function exportSheetAsImage(char) {
+  const html = generatePrintableSheet(char);
+  // create offscreen container
+  const container = document.createElement('div');
+  container.style.position = 'fixed'; container.style.left = '-10000px'; container.style.top = '0';
+  container.innerHTML = html;
+  document.body.appendChild(container);
+  // wait for bg images/fonts to load
+  await new Promise(r => setTimeout(r, 350));
+  // capture each page separately and zip them into separate downloads
+  const pages = Array.from(container.querySelectorAll('.page'));
+  for (let i=0;i<pages.length;i++){
+    const page = pages[i];
+    const canvas = await html2canvas(page, { scale: 2, useCORS: true });
+    const dataUrl = canvas.toDataURL('image/png');
+    const a = document.createElement('a'); a.href = dataUrl; a.download = `${char.name || 'character'}-page-${i+1}.png`; a.click();
+    await new Promise(r=>setTimeout(r,100));
+  }
+  container.remove();
+}
+
+async function exportSheetAsPDF(char) {
+  // Render printable HTML offscreen and capture each .page separately so each uploaded background becomes a PDF page.
+  const html = generatePrintableSheet(char);
+  const container = document.createElement('div');
+  container.style.position = 'fixed'; container.style.left = '-10000px'; container.style.top = '0';
+  container.innerHTML = html;
+  document.body.appendChild(container);
+  await new Promise(r => setTimeout(r, 450));
+  const pages = Array.from(container.querySelectorAll('.page'));
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('p', 'pt', 'a4');
+  const pdfWidthPt = pdf.internal.pageSize.getWidth();
+  const pdfHeightPt = pdf.internal.pageSize.getHeight();
+
+  for (let i=0;i<pages.length;i++){
+    const page = pages[i];
+    const canvas = await html2canvas(page, { scale:2, useCORS:true });
+    const imgData = canvas.toDataURL('image/png');
+    const imgProps = pdf.getImageProperties(imgData);
+    const renderedHeightPt = (imgProps.height * pdfWidthPt) / imgProps.width;
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidthPt, renderedHeightPt);
+    if (i < pages.length-1) pdf.addPage();
+    await new Promise(r=>setTimeout(r,100));
+  }
+  document.body.removeChild(container);
+  pdf.save(`${char.name || 'character'}.pdf`);
+}
+
 // Initialization
 function init() {
   buildAbilitiesUI();
@@ -783,6 +1357,8 @@ function init() {
   buildSpellSlotsUI();
   populateSelectOptions();
   attachListeners();
+  wireSettingsUI();
+  wireTutorialUI();
   renderEverything();
 }
 
