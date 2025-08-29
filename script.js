@@ -39,6 +39,37 @@ const SKILLS = [
 
 const DEFAULT_SPELL_SLOT_LEVELS = 9; // 1..9
 
+// D&D 5e selections (core/common choices). This is not exhaustive but covers standard PHB options.
+const CLASSES = [
+  'Barbarian','Bard','Cleric','Druid','Fighter','Monk','Paladin','Ranger','Rogue','Sorcerer','Warlock','Wizard'
+];
+
+// Example subclass mapping (keyed by class name). Keep values as arrays of common subclasses.
+const SUBCLASSES = {
+  Barbarian: ['Path of the Berserker','Path of the Totem Warrior','Path of the Zealot'],
+  Bard: ['College of Lore','College of Valor','College of Glamour'],
+  Cleric: ['Life Domain','Light Domain','Trickery Domain','War Domain'],
+  Druid: ['Circle of the Land','Circle of the Moon'],
+  Fighter: ['Champion','Battle Master','Eldritch Knight'],
+  Monk: ['Way of the Open Hand','Way of Shadow','Way of the Four Elements'],
+  Paladin: ['Oath of Devotion','Oath of the Ancients','Oath of Vengeance'],
+  Ranger: ['Hunter','Beast Master'],
+  Rogue: ['Thief','Assassin','Arcane Trickster'],
+  Sorcerer: ['Draconic Bloodline','Wild Magic'],
+  Warlock: ['The Fiend','The Archfey','The Great Old One'],
+  Wizard: ['School of Evocation','School of Illusion','School of Necromancy']
+};
+
+const RACES = [
+  'Human','Dwarf','Elf','Halfling','Dragonborn','Gnome','Half-Elf','Half-Orc','Tiefling'
+];
+
+const ALIGNMENTS = [
+  'Lawful Good','Neutral Good','Chaotic Good',
+  'Lawful Neutral','True Neutral','Chaotic Neutral',
+  'Lawful Evil','Neutral Evil','Chaotic Evil'
+];
+
 // State
 let characters = loadCharacters();
 let currentId = characters.length ? characters[0].id : createNewCharacter().id;
@@ -181,6 +212,55 @@ function buildAbilitiesUI() {
   });
 }
 
+function populateSelectOptions() {
+  const classEl = document.getElementById('class');
+  const subclassEl = document.getElementById('subclass');
+  const raceEl = document.getElementById('race');
+  const alignEl = document.getElementById('alignment');
+
+  // Populate classes
+  CLASSES.forEach(c => {
+    const opt = document.createElement('option'); opt.value = c; opt.textContent = c; classEl.appendChild(opt);
+  });
+
+  // Populate races
+  RACES.forEach(r => { const opt = document.createElement('option'); opt.value = r; opt.textContent = r; raceEl.appendChild(opt); });
+
+  // Populate alignments
+  ALIGNMENTS.forEach(a => { const opt = document.createElement('option'); opt.value = a; opt.textContent = a; alignEl.appendChild(opt); });
+
+  // Populate subclass when class changes and dispatch an input event so the generic binder saves it
+  classEl.addEventListener('change', e => {
+    const cls = e.target.value;
+    updateSubclassOptions(cls);
+    const inputEvent = new Event('input', { bubbles: true });
+    classEl.dispatchEvent(inputEvent);
+  });
+
+  // Dispatch an input event when subclass/race/alignment change so generic binding saves values
+  subclassEl.addEventListener('change', () => {
+    subclassEl.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  raceEl.addEventListener('change', () => {
+    raceEl.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  alignEl.addEventListener('change', () => {
+    alignEl.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+function updateSubclassOptions(className) {
+  const subclassEl = document.getElementById('subclass');
+  // Clear current options
+  subclassEl.innerHTML = '';
+  const empty = document.createElement('option'); empty.value = ''; empty.textContent = '— Select Subclass —';
+  subclassEl.appendChild(empty);
+  if (!className || !SUBCLASSES[className]) return;
+  SUBCLASSES[className].forEach(sc => {
+    const opt = document.createElement('option'); opt.value = sc; opt.textContent = sc; subclassEl.appendChild(opt);
+  });
+}
+
 function buildSavingThrowsUI() {
   const container = document.getElementById('savingThrows');
   container.innerHTML = '';
@@ -298,6 +378,10 @@ function populateFields() {
     notes: 'notes'
   };
 
+  // Ensure subclass options exist for this character's class before setting select values
+  const classVal = deepGet(char, 'class') || '';
+  if (classVal) updateSubclassOptions(classVal);
+
   Object.entries(mapping).forEach(([id, path]) => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -305,9 +389,11 @@ function populateFields() {
     if (el.type === 'checkbox') {
       el.checked = !!value;
     } else {
+      // Support selects as well
       el.value = value;
     }
   });
+
 
   // Abilities
   ABILITIES.forEach(a => {
@@ -695,6 +781,7 @@ function init() {
   buildSavingThrowsUI();
   buildSkillsUI();
   buildSpellSlotsUI();
+  populateSelectOptions();
   attachListeners();
   renderEverything();
 }
